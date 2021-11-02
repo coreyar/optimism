@@ -31,6 +31,9 @@ export const getUniswapPoolData = async (
   l2Provider: ethers.providers.BaseProvider,
   network: 'mainnet' | 'kovan'
 ): Promise<UniswapPoolData[]> => {
+  if (!network) {
+    throw new Error('Must provide network "mainnet" or "kovan"')
+  }
   const UniswapV3Factory = getUniswapV3Factory(l2Provider)
 
   const pools: UniswapPoolData[] = []
@@ -82,6 +85,13 @@ export const makePoolHashCache = (pools: UniswapPoolData[]): PoolHashCache => {
   return cache
 }
 
+const getChainId = async (
+  provider: ethers.providers.JsonRpcProvider
+): Promise<number> => {
+  const response = await provider.send('eth_chainId', [])
+  return ethers.BigNumber.from(response.result).toNumber()
+}
+
 export const loadSurgeryData = async (
   configs?: SurgeryConfigs
 ): Promise<SurgeryDataSources> => {
@@ -93,6 +103,32 @@ export const loadSurgeryData = async (
   if (configs === undefined) {
     console.log('Loading configuration values...')
     configs = loadConfigs()
+  }
+
+  // Get a reference to an ETH (mainnet) provider.
+  console.log('Connecting to ETH provider...')
+  const ethProvider = new ethers.providers.JsonRpcProvider(
+    configs.ethProviderUrl
+  )
+  const mainnetChainId = await getChainId(ethProvider)
+  if (mainnetChainId !== 1) {
+    throw new Error(
+      `Mainnet chain id incorrect, got ${mainnetChainId} and expected 1`
+    )
+  }
+
+  // Get a reference to the L2 provider so we can load pool data.
+  // Do validation on the chain id before reading data from disk
+  // because that is slow
+  console.log('Connecting to L2 provider...')
+  const l2Provider = new ethers.providers.JsonRpcProvider(configs.l2ProviderUrl)
+  const l2ChainId = await getChainId(l2Provider)
+  if (l2ChainId === 10) {
+    configs.l2NetworkName === 'mainnet'
+  } else if (l2ChainId === 69) {
+    configs.l2NetworkName = 'kovan'
+  } else {
+    throw new Error(`Unknown l2 chain id: ${l2ChainId}`)
   }
 
   // Load and validate the state dump.
@@ -120,10 +156,6 @@ export const loadSurgeryData = async (
   )
   console.log(`${etherscanDump.length} entries in etherscan dump`)
 
-  // Get a reference to the L2 provider so we can load pool data.
-  console.log('Connecting to L2 provider...')
-  const l2Provider = new ethers.providers.JsonRpcProvider(configs.l2ProviderUrl)
-
   // Load the pool data.
   console.log('Loading Uniswap pool data...')
   const pools: UniswapPoolData[] = await getUniswapPoolData(
@@ -140,16 +172,17 @@ export const loadSurgeryData = async (
   const ropstenProvider = new ethers.providers.JsonRpcProvider(
     configs.ropstenProviderUrl
   )
+
   const ropstenWallet = new ethers.Wallet(
     configs.ropstenPrivateKey,
     ropstenProvider
   )
-
-  // Get a reference to an ETH (mainnet) provider.
-  console.log('Connecting to ETH provider...')
-  const ethProvider = new ethers.providers.JsonRpcProvider(
-    configs.ethProviderUrl
-  )
+  const ropstenChainId = await ropstenWallet.getChainId()
+  if (ropstenChainId !== 3) {
+    throw new Error(
+      `Ropsten chain id incorrect, got ${ropstenChainId} and expected 3`
+    )
+  }
 
   return {
     configs,
